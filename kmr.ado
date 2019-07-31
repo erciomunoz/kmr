@@ -1,4 +1,5 @@
-*! version 1.0.0 19January2019
+*! version 1.1 30July2019 - speeded up with some small changes (~8 times faster)
+* version 1.0 19January2019
 
 * This command implements Korinek, Mistiaen and Ravallion. Journal of Econometrics Vol. 135, Issue 1, Jan 2007
 
@@ -132,9 +133,8 @@ void mywork( string scalar indepvars,  string scalar new_group, 		///
 			 string scalar fvname,	   string scalar variance,          ///
 			 string scalar vsigma, 	   string scalar vaic,              ///
 			 string scalar vschwarz,   string scalar nocons, 			///
-			 numeric vector delta,     ///
-			 string scalar start,      string scalar difficult, ///
-			 numeric vector maxiter ///
+			 numeric vector delta,     string scalar start,      		///
+			 string scalar difficult,  numeric vector maxiter           ///
  )
 {
  
@@ -155,6 +155,15 @@ void mywork( string scalar indepvars,  string scalar new_group, 		///
     y = st_data(., indepvars, touse),J(rows(X),1,1)
 	}
 	
+	groups2 = rows(mm_collapse(X[.,(2::3)], 1, X[.,1]))
+	addobs2 = J(groups2,rows(y),0)
+	for (i=1; i<=groups2; i++) {
+	addobs2[i,.] = X[.,1]' :== i
+	}
+	
+	pop2 = mm_collapse(X[.,(2::3)], 1, X[.,1])
+	pop2 = pop2[.,2]+pop2[.,3]
+		
 	S = optimize_init()
 
 	optimize_init_argument(S, 1, y)
@@ -163,6 +172,8 @@ void mywork( string scalar indepvars,  string scalar new_group, 		///
 	optimize_init_params(S,st_matrix(start))
 	}
     optimize_init_argument(S, 2, X)
+	optimize_init_argument(S, 3, pop2)
+	optimize_init_argument(S, 4, addobs2)
 	optimize_init_evaluator(S, &plleval())
 	optimize_init_which(S,"min") 
 	optimize_init_technique(S, st_local("technique"))
@@ -180,15 +191,8 @@ void mywork( string scalar indepvars,  string scalar new_group, 		///
 	f = optimize_result_value(S)
 	st_numscalar(fvname, f)
 	
-	groups2 = rows(mm_collapse(X[.,(2::3)], 1, X[.,1]))
-	addobs2 = J(groups2,rows(y),0)
-	for (i=1; i<=groups2; i++) {
-	addobs2[i,.] = X[.,1]' :== i
-	}
 	
 	P2 = invlogit(y * b')
-	pop2 = mm_collapse(X[.,(2::3)], 1, X[.,1])
-	pop2 = pop2[.,2]+pop2[.,3]
 	g2 = pop2-addobs2*(1:/P2) 
 	s = sum(g2 :* g2) / sum(pop2)
 	st_numscalar(vsigma, s)
@@ -197,6 +201,7 @@ void mywork( string scalar indepvars,  string scalar new_group, 		///
 	sigma2 = s * invsym(G'*diag(1 :/ pop2)*G)
 	st_matrix(variance, sigma2)
 	
+	// Return compliance function
 	if (w2!="") {
 	st_view(Z1, ., st_addvar(("float"), (w2)),touse )
 	Z1[., .] = P2
@@ -208,37 +213,30 @@ void mywork( string scalar indepvars,  string scalar new_group, 		///
 	CI2[., .] = invlogit(y * b' - 1.96*cross(((y*sigma2):*y)',J(cols(y),1,1)) )
 	}
 	
+	// Return corrected survey weights
 	if (w1!="") {
 	Z2_name = w1+"_c"
 	st_view(Z2, ., st_addvar(("float"), (Z2_name)),touse )
 	Z2[., .] = st_data(., w1, touse) :/ P2
 	}
 		
+	// Return information criteria	
 	st_numscalar(vaic, rows(pop2)*log(f/rows(pop2))+2*cols(y))
 	st_numscalar(vschwarz, rows(pop2)*log(f/rows(pop2))+cols(y)*log(cols(y)))
 	
 }
 
-void plleval(real scalar todo, real vector b, ///
-             real matrix y,    real matrix X, ///
+void plleval(real scalar todo,   real vector b, ///
+             real matrix y,      real matrix X, ///
+			 real matrix pop,    real matrix addobs, ///
 		     crit, grad, hess)
 {
-    real matrix addobs, P, pop, g, W
-	real scalar groups
+    real matrix P, g
 	
-	pop         = mm_collapse(X[.,(2::3)], 1, X[.,1])
-	groups      = rows(pop)
-	
-	addobs      = J(groups,rows(y),0)
-for (i=1; i<=groups; i++) {
-	addobs[i,.] = X[.,1]' :== i
-}
-
 	P			= invlogit(y * b')
-	pop         = pop[.,2]+pop[.,3]
 	g           = pop-addobs*(1:/P) 
-	W           = diag(1:/pop)
-	crit        = (g'*W*g) 
+	crit 		= quadcross(g, (1:/pop), g)
+	
 }
 
 end

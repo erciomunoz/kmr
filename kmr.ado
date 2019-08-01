@@ -1,4 +1,4 @@
-*! version 1.1 30July2019 - speeded up with some small changes (~8 times faster)
+*! version 1.1 01August2019 - speeded up with some small changes (~8 times faster)
 * version 1.0 19January2019
 
 * This command implements Korinek, Mistiaen and Ravallion. Journal of Econometrics Vol. 135, Issue 1, Jan 2007
@@ -140,7 +140,7 @@ void mywork( string scalar indepvars,  string scalar new_group, 		///
  
 	real scalar f, s
     real vector b
-    real matrix X, y, Z1, Z2, groups2, addobs2, P2, pop2, g2, G, sigma2, CI1, CI2
+    real matrix X, y, Z1, Z2, groups, addobs, P, pop, g, G, sigma2, CI1, CI2
 	string scalar Z2_name, ci_uname, ci_lname
  
 	X = st_data(., (new_group,interviews,nonresponse), touse)
@@ -155,25 +155,25 @@ void mywork( string scalar indepvars,  string scalar new_group, 		///
     y = st_data(., indepvars, touse),J(rows(X),1,1)
 	}
 	
-	groups2 = rows(mm_collapse(X[.,(2::3)], 1, X[.,1]))
-	addobs2 = J(groups2,rows(y),0)
-	for (i=1; i<=groups2; i++) {
-	addobs2[i,.] = X[.,1]' :== i
+	groups = rows(mm_collapse(X[.,(2::3)], 1, X[.,1]))
+	addobs = J(groups,rows(y),0)
+	for (i=1; i<=groups; i++) {
+	addobs[i,.] = X[.,1]' :== i
 	}
 	
-	pop2 = mm_collapse(X[.,(2::3)], 1, X[.,1])
-	pop2 = pop2[.,2]+pop2[.,3]
+	pop = mm_collapse(X[.,(2::3)], 1, X[.,1])
+	pop = pop[.,2]+pop[.,3]
 		
 	S = optimize_init()
 
 	optimize_init_argument(S, 1, y)
+    optimize_init_argument(S, 2, X)
+	optimize_init_argument(S, 3, pop)
+	optimize_init_argument(S, 4, addobs)
 	optimize_init_params(S,J(1,cols(y),0))
 	if (start!="") {
 	optimize_init_params(S,st_matrix(start))
 	}
-    optimize_init_argument(S, 2, X)
-	optimize_init_argument(S, 3, pop2)
-	optimize_init_argument(S, 4, addobs2)
 	optimize_init_evaluator(S, &plleval())
 	optimize_init_which(S,"min") 
 	optimize_init_technique(S, st_local("technique"))
@@ -192,19 +192,19 @@ void mywork( string scalar indepvars,  string scalar new_group, 		///
 	st_numscalar(fvname, f)
 	
 	
-	P2 = invlogit(y * b')
-	g2 = pop2-addobs2*(1:/P2) 
-	s = sum(g2 :* g2) / sum(pop2)
+	P = invlogit(y * b')
+	g = pop-addobs*(1:/P) 
+	s = sum(g :* g) / sum(pop)
 	st_numscalar(vsigma, s)
 	
-	G = addobs2 * (y :/ (J(1,cols(y),1)#exp(y * b')) )
-	sigma2 = s * invsym(G'*diag(1 :/ pop2)*G)
+	G = addobs * (y :/ (J(1,cols(y),1)#exp(y * b')) )
+	sigma2 = s * invsym(G'*diag(1 :/ pop)*G)
 	st_matrix(variance, sigma2)
 	
 	// Return compliance function
 	if (w2!="") {
 	st_view(Z1, ., st_addvar(("float"), (w2)),touse )
-	Z1[., .] = P2
+	Z1[., .] = P
 	ci_uname = w2+"_upper"
 	st_view(CI1, ., st_addvar(("float"), (ci_uname)),touse )
 	CI1[., .] = invlogit(y * b' + 1.96*cross(((y*sigma2):*y)',J(cols(y),1,1)) ) 	
@@ -217,12 +217,12 @@ void mywork( string scalar indepvars,  string scalar new_group, 		///
 	if (w1!="") {
 	Z2_name = w1+"_c"
 	st_view(Z2, ., st_addvar(("float"), (Z2_name)),touse )
-	Z2[., .] = st_data(., w1, touse) :/ P2
+	Z2[., .] = st_data(., w1, touse) :/ P
 	}
 		
 	// Return information criteria	
-	st_numscalar(vaic, rows(pop2)*log(f/rows(pop2))+2*cols(y))
-	st_numscalar(vschwarz, rows(pop2)*log(f/rows(pop2))+cols(y)*log(cols(y)))
+	st_numscalar(vaic, rows(pop)*log(f/rows(pop))+2*cols(y))
+	st_numscalar(vschwarz, rows(pop)*log(f/rows(pop))+cols(y)*log(cols(y)))
 	
 }
 
